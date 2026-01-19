@@ -220,9 +220,11 @@ local function getClosestPlayer()
             local aimPart = getTargetBone(character)
             
             if humanoid and humanoid.Health > 0 and rootPart and aimPart then
-                -- Team check
-                if CONFIG.TeamCheck and targetPlayer.Team == player.Team then
-                    continue
+                -- Team check (properly handle nil teams)
+                if CONFIG.TeamCheck then
+                    if targetPlayer.Team and player.Team and targetPlayer.Team == player.Team then
+                        continue
+                    end
                 end
                 
                 -- Visibility/Wall check
@@ -536,8 +538,12 @@ local function createESP(targetPlayer)
         
         if not rootPart or not humanoid or humanoid.Health <= 0 then return end
         
-        -- Team check
-        if CONFIG.ESPTeamCheck and targetPlayer.Team == player.Team then return end
+        -- Team check (properly handle nil teams)
+        if CONFIG.ESPTeamCheck then
+            if targetPlayer.Team and player.Team and targetPlayer.Team == player.Team then 
+                return 
+            end
+        end
         
         -- Wall check
         if CONFIG.ESPWallCheck and not isVisible(rootPart) then return end
@@ -562,7 +568,7 @@ local function createESP(targetPlayer)
         -- Get color
         local espColor = CONFIG.ESPTeamColor and getTeamColor(targetPlayer) or CONFIG.ESPColor
         
-        -- Box ESP (FIXED - More accurate)
+        -- Box ESP (TRULY FIXED - Proper Y-axis)
         if CONFIG.ESPBoxes then
             local box = Drawing.new("Square")
             box.Visible = true
@@ -571,24 +577,32 @@ local function createESP(targetPlayer)
             box.Transparency = transparency
             box.Filled = CONFIG.ESPBoxFilled
             
-            -- Calculate more accurate box
-            local hrpCFrame = rootPart.CFrame
-            local boxSize = Vector3.new(4, 5, 0) -- Width, Height
+            -- Get character size for proper scaling
+            local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+            if not torso then
+                box.Visible = false
+                table.insert(espObjects[targetPlayer.Name], box)
+                return
+            end
             
-            -- Get all 4 corners
-            local topLeft = camera:WorldToViewportPoint((hrpCFrame * CFrame.new(-boxSize.X/2, boxSize.Y/2, 0)).Position)
-            local topRight = camera:WorldToViewportPoint((hrpCFrame * CFrame.new(boxSize.X/2, boxSize.Y/2, 0)).Position)
-            local bottomLeft = camera:WorldToViewportPoint((hrpCFrame * CFrame.new(-boxSize.X/2, -boxSize.Y/2, 0)).Position)
-            local bottomRight = camera:WorldToViewportPoint((hrpCFrame * CFrame.new(boxSize.X/2, -boxSize.Y/2, 0)).Position)
+            -- Calculate proper head and feet positions
+            local headY = head and head.Position.Y + (head.Size.Y / 2) or rootPart.Position.Y + 2
+            local feetY = rootPart.Position.Y - 3 -- Proper feet position
             
-            if topLeft.Z > 0 and bottomRight.Z > 0 then
-                local x = math.min(topLeft.X, topRight.X, bottomLeft.X, bottomRight.X)
-                local y = math.min(topLeft.Y, topRight.Y, bottomLeft.Y, bottomRight.Y)
-                local maxX = math.max(topLeft.X, topRight.X, bottomLeft.X, bottomRight.X)
-                local maxY = math.max(topLeft.Y, topRight.Y, bottomLeft.Y, bottomRight.Y)
+            -- Get screen positions for head (top) and feet (bottom)
+            local topPos = camera:WorldToViewportPoint(Vector3.new(rootPart.Position.X, headY, rootPart.Position.Z))
+            local bottomPos = camera:WorldToViewportPoint(Vector3.new(rootPart.Position.X, feetY, rootPart.Position.Z))
+            
+            -- Get width based on torso
+            local leftPos = camera:WorldToViewportPoint((rootPart.CFrame * CFrame.new(-2.5, 0, 0)).Position)
+            local rightPos = camera:WorldToViewportPoint((rootPart.CFrame * CFrame.new(2.5, 0, 0)).Position)
+            
+            if topPos.Z > 0 and bottomPos.Z > 0 then
+                local height = math.abs(topPos.Y - bottomPos.Y)
+                local width = math.abs(rightPos.X - leftPos.X)
                 
-                box.Size = Vector2.new(maxX - x, maxY - y)
-                box.Position = Vector2.new(x, y)
+                box.Size = Vector2.new(width, height)
+                box.Position = Vector2.new(topPos.X - width/2, topPos.Y) -- Start from top
             else
                 box.Visible = false
             end
@@ -596,55 +610,58 @@ local function createESP(targetPlayer)
             table.insert(espObjects[targetPlayer.Name], box)
         end
         
-        -- Health Bar (NEW)
+        -- Health Bar (FIXED - Aligned with box)
         if CONFIG.ESPHealthBar then
             local healthPercent = humanoid.Health / humanoid.MaxHealth
             
-            -- Background bar
-            local healthBg = Drawing.new("Square")
-            healthBg.Visible = true
-            healthBg.Color = Color3.fromRGB(0, 0, 0)
-            healthBg.Thickness = 1
-            healthBg.Transparency = transparency
-            healthBg.Filled = true
+            -- Get proper head and feet positions for bar
+            local headY = head and head.Position.Y + (head.Size.Y / 2) or rootPart.Position.Y + 2
+            local feetY = rootPart.Position.Y - 3
             
-            -- Foreground bar (actual health)
-            local healthFg = Drawing.new("Square")
-            healthFg.Visible = true
-            healthFg.Thickness = 1
-            healthFg.Transparency = transparency
-            healthFg.Filled = true
+            local topPos = camera:WorldToViewportPoint(Vector3.new(rootPart.Position.X, headY, rootPart.Position.Z))
+            local bottomPos = camera:WorldToViewportPoint(Vector3.new(rootPart.Position.X, feetY, rootPart.Position.Z))
             
-            -- Color based on health
-            if healthPercent > 0.75 then
-                healthFg.Color = Color3.fromRGB(0, 255, 0)
-            elseif healthPercent > 0.5 then
-                healthFg.Color = Color3.fromRGB(255, 255, 0)
-            elseif healthPercent > 0.25 then
-                healthFg.Color = Color3.fromRGB(255, 165, 0)
-            else
-                healthFg.Color = Color3.fromRGB(255, 0, 0)
-            end
-            
-            local topLeft = camera:WorldToViewportPoint((rootPart.CFrame * CFrame.new(-2.5, 3, 0)).Position)
-            local bottomLeft = camera:WorldToViewportPoint((rootPart.CFrame * CFrame.new(-2.5, -3, 0)).Position)
-            
-            if topLeft.Z > 0 then
-                local barHeight = math.abs(bottomLeft.Y - topLeft.Y)
+            if topPos.Z > 0 and bottomPos.Z > 0 then
+                local barHeight = math.abs(bottomPos.Y - topPos.Y)
                 local barWidth = 3
                 
+                -- Background bar
+                local healthBg = Drawing.new("Square")
+                healthBg.Visible = true
+                healthBg.Color = Color3.fromRGB(0, 0, 0)
+                healthBg.Thickness = 1
+                healthBg.Transparency = transparency
+                healthBg.Filled = true
                 healthBg.Size = Vector2.new(barWidth, barHeight)
-                healthBg.Position = Vector2.new(topLeft.X - barWidth - 5, topLeft.Y)
+                healthBg.Position = Vector2.new(topPos.X - barWidth - 8, topPos.Y)
+                
+                -- Foreground bar (actual health)
+                local healthFg = Drawing.new("Square")
+                healthFg.Visible = true
+                healthFg.Thickness = 1
+                healthFg.Transparency = transparency
+                healthFg.Filled = true
+                
+                -- Color based on health
+                if healthPercent > 0.75 then
+                    healthFg.Color = Color3.fromRGB(0, 255, 0)
+                elseif healthPercent > 0.5 then
+                    healthFg.Color = Color3.fromRGB(255, 255, 0)
+                elseif healthPercent > 0.25 then
+                    healthFg.Color = Color3.fromRGB(255, 165, 0)
+                else
+                    healthFg.Color = Color3.fromRGB(255, 0, 0)
+                end
                 
                 healthFg.Size = Vector2.new(barWidth, barHeight * healthPercent)
-                healthFg.Position = Vector2.new(topLeft.X - barWidth - 5, topLeft.Y + (barHeight * (1 - healthPercent)))
+                healthFg.Position = Vector2.new(topPos.X - barWidth - 8, topPos.Y + (barHeight * (1 - healthPercent)))
                 
                 table.insert(espObjects[targetPlayer.Name], healthBg)
                 table.insert(espObjects[targetPlayer.Name], healthFg)
             end
         end
         
-        -- Name ESP (FIXED)
+        -- Name ESP (FIXED - Above box)
         if CONFIG.ESPNames and head then
             local nameLabel = Drawing.new("Text")
             nameLabel.Text = targetPlayer.Name
@@ -655,7 +672,10 @@ local function createESP(targetPlayer)
             nameLabel.Visible = true
             nameLabel.Transparency = transparency
             
-            local headPos = camera:WorldToViewportPoint((head.CFrame * CFrame.new(0, 2, 0)).Position)
+            -- Position above head properly
+            local headY = head.Position.Y + (head.Size.Y / 2) + 0.5
+            local headPos = camera:WorldToViewportPoint(Vector3.new(head.Position.X, headY, head.Position.Z))
+            
             if headPos.Z > 0 then
                 nameLabel.Position = Vector2.new(headPos.X, headPos.Y)
             else
